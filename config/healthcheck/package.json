@@ -1,0 +1,9 @@
+{
+  "name": "cluster-healthcheck",
+  "version": "1.0.0",
+  "description": "Healthcheck Node.js que reporta el rol (primary/replica) de un nodo PostgreSQL",
+  "main": "healthcheck.js",
+  "dependencies": {
+    "pg": "^8.11.3"
+  }
+}

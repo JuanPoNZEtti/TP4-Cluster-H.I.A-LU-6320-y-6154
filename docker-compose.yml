@@ -1,0 +1,238 @@
+services:
+
+  # ---------------------------------------------------------------------
+  # NODO 1 - PRIMARIO
+  # ---------------------------------------------------------------------
+  db-node1:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: db-node1
+    hostname: db-node1
+    environment:
+      POSTGRES_USER: ${ADMIN_USER}
+      POSTGRES_PASSWORD: ${ADMIN_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      REPLICATION_USER: ${REPLICATION_USER}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD}
+      APP_USER: ${APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD}
+      MONITOR_USER: ${MONITOR_USER}
+      MONITOR_PASSWORD: ${MONITOR_PASSWORD}
+    volumes:
+      - node1-data:/var/lib/postgresql/data
+      - ./node1/init:/docker-entrypoint-initdb.d
+      - ./backups:/backups
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c hot_standby=on
+      -c synchronous_commit=off
+      -c listen_addresses=*
+      -c shared_buffers=256MB
+      -c max_connections=200
+    networks:
+      cluster-net:
+        aliases: [db-node1]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # NODO 2 - SECUNDARIO (réplica de streaming)
+  # ---------------------------------------------------------------------
+  db-node2:
+    build:
+      context: ./node2
+    container_name: db-node2
+    hostname: db-node2
+    environment:
+      PRIMARY_HOST: ${PRIMARY_HOST}
+      REPLICATION_USER: ${REPLICATION_USER}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - node2-data:/var/lib/postgresql/data
+    command: >
+      -c hot_standby=on
+      -c max_connections=200
+    depends_on:
+      - db-node1
+    networks:
+      cluster-net:
+        aliases: [db-node2]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # NODO 3 - SECUNDARIO (réplica de streaming)
+  # ---------------------------------------------------------------------
+  db-node3:
+    build:
+      context: ./node3
+    container_name: db-node3
+    hostname: db-node3
+    environment:
+      PRIMARY_HOST: ${PRIMARY_HOST}
+      REPLICATION_USER: ${REPLICATION_USER}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - node3-data:/var/lib/postgresql/data
+    command: >
+      -c hot_standby=on
+      -c max_connections=200
+    depends_on:
+      - db-node1
+    networks:
+      cluster-net:
+        aliases: [db-node3]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # HEALTHCHECKS Node.js (uno por nodo, reportan primary/replica a HAProxy)
+  # ---------------------------------------------------------------------
+  healthcheck-node1:
+    build: ./config/healthcheck
+    container_name: healthcheck-node1
+    environment:
+      DB_HOST: db-node1
+      DB_USER: ${MONITOR_USER}
+      DB_PASSWORD: ${MONITOR_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    network_mode: "service:db-node1"
+    depends_on:
+      - db-node1
+
+  healthcheck-node2:
+    build: ./config/healthcheck
+    container_name: healthcheck-node2
+    environment:
+      DB_HOST: db-node2
+      DB_USER: ${MONITOR_USER}
+      DB_PASSWORD: ${MONITOR_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    network_mode: "service:db-node2"
+    depends_on:
+      - db-node2
+
+  healthcheck-node3:
+    build: ./config/healthcheck
+    container_name: healthcheck-node3
+    environment:
+      DB_HOST: db-node3
+      DB_USER: ${MONITOR_USER}
+      DB_PASSWORD: ${MONITOR_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    network_mode: "service:db-node3"
+    depends_on:
+      - db-node3
+
+  # ---------------------------------------------------------------------
+  # HAPROXY - Proxy / Load balancer (punto único de acceso del clúster)
+  # ---------------------------------------------------------------------
+  haproxy:
+    image: haproxy:2.9-alpine
+    container_name: haproxy
+    volumes:
+      - ./config/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "5000:5000"   # Escritura -> nodo primario
+      - "5001:5001"   # Lectura -> réplicas (round robin)
+      - "8404:8404"   # Panel de estadísticas HAProxy
+      - "8405:8405"   # Métricas Prometheus de HAProxy
+    depends_on:
+      - db-node1
+      - db-node2
+      - db-node3
+    networks:
+      - cluster-net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # MONITORIZACIÓN: Prometheus + exporters + Grafana
+  # ---------------------------------------------------------------------
+  postgres-exporter-node1:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-node1
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${MONITOR_USER}:${MONITOR_PASSWORD}@db-node1:5432/${DB_NAME}?sslmode=disable"
+    depends_on:
+      - db-node1
+    networks:
+      - cluster-net
+
+  postgres-exporter-node2:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-node2
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${MONITOR_USER}:${MONITOR_PASSWORD}@db-node2:5432/${DB_NAME}?sslmode=disable"
+    depends_on:
+      - db-node2
+    networks:
+      - cluster-net
+
+  postgres-exporter-node3:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-node3
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${MONITOR_USER}:${MONITOR_PASSWORD}@db-node3:5432/${DB_NAME}?sslmode=disable"
+    depends_on:
+      - db-node3
+    networks:
+      - cluster-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - cluster-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - cluster-net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # CLIENTE Node.js (accede al clúster únicamente vía HAProxy)
+  # ---------------------------------------------------------------------
+  client:
+    build: ./client
+    container_name: cluster-client
+    environment:
+      LB_HOST: haproxy
+      WRITE_PORT: 5000
+      READ_PORT: 5001
+      APP_USER: ${APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    depends_on:
+      - haproxy
+    networks:
+      - cluster-net
+    restart: unless-stopped
+
+networks:
+  cluster-net:
+    driver: bridge
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
+  prometheus-data:
+  grafana-data:
