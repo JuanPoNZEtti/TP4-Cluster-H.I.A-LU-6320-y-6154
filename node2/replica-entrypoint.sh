@@ -20,7 +20,7 @@ if [ -z "$(ls -A "$PGDATA_DIR" 2>/dev/null)" ]; then
     -D "$PGDATA_DIR" \
     -U "$REPLICATION_USER" \
     -Fp -Xs -P -R \
-    -C -S "slot_$(hostname)"
+    -C -S "slot_${HOSTNAME//-/_}"
 
   chmod 700 "$PGDATA_DIR"
   echo ">> [$(hostname)] Clonación completa. standby.signal creado."

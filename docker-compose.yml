@@ -9,6 +9,7 @@ services:
     hostname: db-node1
     environment:
       POSTGRES_USER: ${ADMIN_USER}
+      ADMIN_USER: ${ADMIN_USER}
       POSTGRES_PASSWORD: ${ADMIN_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
       REPLICATION_USER: ${REPLICATION_USER}

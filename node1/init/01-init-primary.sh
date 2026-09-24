@@ -24,10 +24,10 @@ EOSQL
 
 # Reglas de acceso: solo dentro de la red interna de Docker (172.16.0.0/12 cubre el rango por defecto de compose)
 {
-  echo "host replication ${REPLICATION_USER} 172.16.0.0/12 md5"
-  echo "host all ${APP_USER}          172.16.0.0/12 md5"
-  echo "host all ${MONITOR_USER}      172.16.0.0/12 md5"
-  echo "host all ${ADMIN_USER}        172.16.0.0/12 md5"
+  echo "host replication ${REPLICATION_USER} 172.16.0.0/12 scram-sha-256"
+  echo "host all ${APP_USER}          172.16.0.0/12 scram-sha-256"
+  echo "host all ${MONITOR_USER}      172.16.0.0/12 scram-sha-256"
+  echo "host all ${ADMIN_USER}        172.16.0.0/12 scram-sha-256"
 } >> "$PGDATA/pg_hba.conf"
 
 echo "Nodo primario inicializado: usuarios y pg_hba.conf configurados."

@@ -50,7 +50,7 @@ async function listarClientes() {
     'SELECT id, nombre, email, creado_en FROM clientes ORDER BY id DESC LIMIT 5;'
   );
   console.log(`[lectura] OK ${res.rowCount} filas (puerto 5001 -> réplica)`);
-  console.table(res.rows);
+  console.log(JSON.stringify(res.rows,null, 2));
 }
 
 async function loop() {
