@@ -227,6 +227,21 @@ services:
       - cluster-net
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------
+  # URL: http://localhost:8080
+  # Servidor: haproxy - Puerto: 5000 - Usuario: admin_cluster - BD: empresa
+  # ---------------------------------------------------------------------
+  adminer:
+    image: adminer:latest
+    container_name: cluster-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - haproxy
+    networks:
+      - cluster-net
+    restart: unless-stopped
+
 networks:
   cluster-net:
     driver: bridge
